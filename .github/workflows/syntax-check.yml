@@ -1,0 +1,36 @@
+name: Streamlit Code Syntax Validation
+
+# Trigger this pipeline on every push or code merge to the main branch
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  validate-code:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Securely pull down the latest code from your repository
+    - name: Checkout Code Repository
+      uses: actions/checkout@v4
+
+    # Step 2: Provision a clean Python execution environment
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip' # Speeds up future run cycles by caching downloaded libraries
+
+    # Step 3: Install application frameworks listed in requirements.txt
+    - name: Install Project Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    # Step 4: Use Python's compiler module to check for compilation bugs
+    - name: Verify Syntax and Compilation Integrity
+      run: |
+        echo "Checking app.py for fatal errors and unclosed loops..."
+        python -m py_compile app.py
