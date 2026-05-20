@@ -48,6 +48,9 @@ else:
 
 tab1, tab2, tab3, tab4 = st.tabs(["Job Finder", "CV Customizer", "Career Next Step", "Interview Prep Kit"])
 
+# ==========================================
+# REVISED TAB 1: INTEGRATES METADATA EXTRACTION
+# ==========================================
 with tab1:
     st.text_input("Additional Search Modifiers (e.g. Remote India)", key="search_modifiers")
     if st.button("Launch Web Search Agent"):
@@ -62,17 +65,45 @@ with tab1:
                     temperature=1.0
                 )
                 modifiers = st.session_state.get("search_modifiers", "")
-                prompt = f"Perform a live Google Search to identify exactly 10 open job vacancies matching the skills and experience level in the attached CV. Filter by modifiers: {modifiers}. Output ONLY a clean Markdown table with columns: Job Title | Company Name | Key Skills Requested | Expected CTC | Date of Posting | Source URL. If a field like CTC or Posting Date is missing from web search snippets, leave that specific markdown cell completely blank. Do not invent filler data or write 'N/A'."
-                with st.spinner("Searching..."):
+                
+                # Updated prompt instructions to append footnote references inside the table
+                prompt = (
+                    f"Perform a live Google Search to identify exactly 10 open job vacancies matching the skills and experience level in the attached CV. "
+                    f"Filter by modifiers: {modifiers}. "
+                    f"Output a clean Markdown table with columns: Job Title | Company Name | Key Skills Requested | Expected CTC | Date of Posting | Source Citation. "
+                    f"Inside the 'Source Citation' column, do not output raw links. Instead, output matching sequential citation bracket markers like [1], [2], or [3] based on where you found the listing. "
+                    f"If a field like CTC or Posting Date is missing from web search snippets, leave that specific markdown cell completely blank. Do not invent filler data."
+                )
+                
+                with st.spinner("Searching live web indexes..."):
                     response = client.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=[cv_file, prompt],
                         config=config
                     )
+                    
+                    # 1. Output your clean Markdown table
                     st.markdown(response.text)
+                    
+                    # 2. Extract and append un-hallucinated links programmatically right below the table
+                    try:
+                        chunks = response.candidates[0].grounding_metadata.grounding_chunks
+                        if chunks:
+                            st.markdown("---")
+                            st.subheader("🔗 Verified Application Links")
+                            for idx, chunk in enumerate(chunks):
+                                if chunk.web and chunk.web.uri:
+                                    title = chunk.web.title if chunk.web.title else f"Job Listing Source {idx+1}"
+                                    st.markdown(f"**[{idx + 1}]** [{title}]({chunk.web.uri})")
+                    except AttributeError:
+                        pass # Squelch gracefully if no chunks metadata payload exists
+                        
             except Exception as e:
                 st.error("API Error: Verify token status.")
 
+# ==========================================
+# UNTOUCHED TABS: RETAINS YOUR EXACT LOGIC
+# ==========================================
 with tab2:
     st.text_area("Paste Target Job Description (JD)", height=200, key="customizer_jd")
     if st.button("Generate ATS Optimization Blueprint"):
