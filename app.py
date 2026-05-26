@@ -1,7 +1,6 @@
 import streamlit as st
-import google.genai as genai
-from google.genai import types
-from io import BytesIO
+import litellm
+import pypdf
 
 # 1. Global Application Layout & Window Configurations
 st.set_page_config(
@@ -13,52 +12,77 @@ st.set_page_config(
 st.title("💼 Agentic Career Operations Suite")
 st.caption("Derived from career-ops architecture — Powered by Gemini 2.5 Flash Grounding")
 
-# 2. Token Security Isolation Setup
-def get_api_key():
-    if "sidebar_api_key" in st.session_state and st.session_state.sidebar_api_key:
-        return st.session_state.sidebar_api_key
-    elif "GEMINI_API_KEY" in st.secrets:
-        return st.secrets["GEMINI_API_KEY"]
-    else:
-        st.info("🔒 Please enter your Gemini API Key in the sidebar to initialize workspace engines.")
-        st.stop()
-
-def get_client():
-    api_key = get_api_key()
-    return genai.Client(api_key=api_key)
-
 # 3. Sidebar Infrastructure (State Capture Inputs)
 with st.sidebar:
+    st.header("🤖 Model Engine Matrix")
+    selected_engine = st.selectbox(
+        "Select Active Brain Engine",
+        ["Google Gemini 2.5 Flash", "Moonshot Kimi 2.5"],
+        key="selected_engine"
+    )
+
     st.header("🔑 Authentication")
-    st.text_input("Enter Gemini API Key", type="password", key="sidebar_api_key")
+    if selected_engine == "Google Gemini 2.5 Flash":
+        st.text_input("Enter Gemini API Key", type="password", key="GEMINI_API_KEY")
+    else:
+        st.text_input("Enter Moonshot API Key", type="password", key="MOONSHOT_API_KEY")
+
     st.file_uploader("Upload your CV", type=["pdf", "docx"], key="uploaded_cv")
 
 # 4. Streamlit Resource Cache for File Storage
-@st.cache_resource
-def upload_cv(file_buffer, mime_type):
+@st.cache_data
+def extract_cv_text(file_buffer):
     try:
-        client = get_client()
-        return client.files.upload(
-            file=file_buffer, 
-            config=types.UploadFileConfig(mime_type=mime_type, display_name="user_cv")
-        )
+        reader = pypdf.PdfReader(file_buffer)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
     except Exception as e:
-        st.error("API Error: Secure token configuration mismatch.")
-        st.stop()
+        return "Error extracting text from file."
 
 # Handle dynamic file ingestions mapping boundaries
 if st.session_state.get("uploaded_cv"):
     file = st.session_state.uploaded_cv
-    file_bytes = file.read()
     if file.name.endswith(".pdf"):
-        mime = "application/pdf"
-    elif file.name.endswith(".docx"):
-        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        cv_file_text = extract_cv_text(file)
     else:
-        mime = "application/octet-stream"
-    cv_file = upload_cv(BytesIO(file_bytes), mime)
+        cv_file_text = None
+        st.error("Unsupported file type. Please upload a PDF.")
 else:
-    cv_file = None
+    cv_file_text = None
+
+# Universal Model Router
+def execute_universal_completion(model_route, user_prompt, cv_file_text=None):
+    expected_key = "GEMINI_API_KEY" if "gemini" in model_route.lower() else "MOONSHOT_API_KEY"
+
+    # Priority 1: Check st.session_state
+    api_key = st.session_state.get(expected_key)
+
+    # Priority 2: Check st.secrets
+    if not api_key:
+        api_key = st.secrets.get(expected_key)
+
+    # Priority 3: Halt
+    if not api_key:
+        provider_name = expected_key.split('_')[0].title()
+        st.info(f"🔒 Please enter your {provider_name} API Key in the sidebar to initialize workspace engines.")
+        st.stop()
+
+    messages = []
+    if cv_file_text:
+        combined_prompt = f"CV Content:\n{cv_file_text}\n\nUser Request:\n{user_prompt}"
+        messages.append({"role": "user", "content": combined_prompt})
+    else:
+        messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = litellm.completion(model=model_route, messages=messages, api_key=api_key)
+        return response
+    except Exception as e:
+        provider_name = expected_key.split('_')[0].title()
+        st.error(f"API Error: Verify token status for {provider_name}.")
+        st.stop()
 
 # Initialize Tab Layout System wrappers
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 Job Finder", "🛠️ CV Customizer", "📈 Career Next Step", "🎯 Interview Prep Kit"])
@@ -76,23 +100,18 @@ with tab1:
     st.text_input("Additional Target Parameters (e.g., Remote India, FinTech, Tier 1)", key="search_modifiers")
     
     if st.button("Execute Sourcing Pipeline", type="primary"):
-        if not cv_file:
+        if not cv_file_text:
             st.warning("Please upload a CV first.")
         else:
             try:
-                client = get_client()
-                search_tool = types.Tool(google_search=types.GoogleSearch())
-                config = types.GenerateContentConfig(
-                    tools=[search_tool],
-                    temperature=1.0
-                )
+                model_route = "gemini/gemini-2.5-flash" if st.session_state.get("selected_engine") == "Google Gemini 2.5 Flash" else "moonshot/kimi-k2.5"
                 modifiers = st.session_state.get("search_modifiers", "")
                 
                 # REVISED PROMPT: Enforces dossier structures & multi-tier grading matrix rules
                 prompt = (
                     f"You are an aggressive recruitment sourcing agent executing an operational pipeline search. "
-                    f"Perform a live Google Search tracking open job vacancies matching the exact tech stack, seniority, and skills inside the attached CV. "
-                    f"Explicitly crawl job portals like Naukri, Indeed, and Cutshort, alongside corporate board pathways powered by Greenhouse.io, Ashby.co, and Lever.co. "
+                    f"Perform a simulated live search tracking open job vacancies matching the exact tech stack, seniority, and skills inside the attached CV. "
+                    f"Explicitly consider job portals like Naukri, Indeed, and Cutshort, alongside corporate board pathways powered by Greenhouse.io, Ashby.co, and Lever.co. "
                     f"Filter criteria by these manual modifiers: {modifiers}.\n\n"
                     f"CRITICAL LAYOUT COMPLIANCE:\n"
                     f"Do NOT output a table layout. Instead, output up to 10 identified jobs sequentially as individual markdown blocks using '### Title - Company' headings. "
@@ -102,35 +121,18 @@ with tab1:
                     f"- Key Skills Requested\n"
                     f"- A-F Scoring Evaluation Matrix: Evaluate and output a letter grade across 3 explicit pillars: "
                     f"[1] Role-Skill Match, [2] Tech Stack Overlap, [3] Experience/Seniority Match. Add a 1-sentence analytical reason for each metric score.\n"
-                    f"- Append a localized numbered bracket footnote (e.g., [1], [2]) directly next to the Job Title heading indicating where the data was grounded.\n\n"
                     f"Strictly maintain a non-hallucinated threshold. If fields or listings are vague, do not invent parameters."
                 )
                 
                 with st.spinner("Scallop crawling across job directories and ATS boards..."):
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[cv_file, prompt],
-                        config=config
-                    )
+                    response = execute_universal_completion(model_route, prompt, cv_file_text)
                     
                     # 1. Output the structured Dossier report details text
-                    st.markdown(response.text)
-                    
-                    # 2. Extract out true programmatic underlying web reference nodes securely
-                    try:
-                        chunks = response.candidates[0].grounding_metadata.grounding_chunks
-                        if chunks:
-                            st.markdown("---")
-                            st.subheader("🔗 Ground-Truth Verification Links")
-                            for idx, chunk in enumerate(chunks):
-                                if chunk.web and chunk.web.uri:
-                                    title = chunk.web.title if chunk.web.title else f"Verified Portal Record {idx+1}"
-                                    st.markdown(f"**[{idx + 1}]** [{title}]({chunk.web.uri})")
-                    except AttributeError:
-                        pass
+                    st.markdown(response.choices[0].message.content)
                         
             except Exception as e:
-                st.error("API Error: Secure token configuration mismatch.")
+                provider_name = "Gemini" if "gemini" in model_route else "Moonshot"
+                st.error(f"API Error: Secure token configuration mismatch for {provider_name}.")
 
 # =====================================================================
 # TAB 2: CV CUSTOMIZER (UPDATED: EXPORTER + SHARED MEMORY BINDINGS)
@@ -146,25 +148,22 @@ with tab2:
     st.session_state["shared_jd_text"] = jd_input
     
     if st.button("Generate ATS Optimization Blueprint"):
-        if not cv_file:
+        if not cv_file_text:
             st.warning("Please upload a CV first.")
         elif not st.session_state["shared_jd_text"].strip():
             st.warning("Please paste a target Job Description.")
         else:
             try:
-                client = get_client()
+                model_route = "gemini/gemini-2.5-flash" if st.session_state.get("selected_engine") == "Google Gemini 2.5 Flash" else "moonshot/kimi-k2.5"
                 prompt = (
                     f"Analyze the attached CV alongside this target job description: {st.session_state['shared_jd_text']}. "
                     f"Rephrase existing metrics, achievements, and technical experience bullets to structurally match the target vocabulary and ATS filters. "
                     f"CRITICAL: Do NOT invent fake jobs, skills, or false accolades. Group your suggestions chronologically by resume section so the user can copy-paste them selectively."
                 )
                 with st.spinner("Refactoring vocabulary structures..."):
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[cv_file, prompt]
-                    )
+                    response = execute_universal_completion(model_route, prompt, cv_file_text)
                     
-                    customized_cv_text = response.text
+                    customized_cv_text = response.choices[0].message.content
                     st.markdown(customized_cv_text)
                     
                     # ADDED: Dynamic File Download button exporter
@@ -176,7 +175,8 @@ with tab2:
                         mime="text/markdown"
                     )
             except Exception as e:
-                st.error("API Error: Secure token configuration mismatch.")
+                provider_name = "Gemini" if "gemini" in model_route else "Moonshot"
+                st.error(f"API Error: Secure token configuration mismatch for {provider_name}.")
 
 # =====================================================================
 # TAB 3: CAREER NEXT STEP (UNTOUCHED CORE)
@@ -184,20 +184,18 @@ with tab2:
 with tab3:
     st.subheader("📈 Core Progression Forecasting")
     if st.button("Evaluate Skill Gaps & Growth Triggers"):
-        if not cv_file:
+        if not cv_file_text:
             st.warning("Please upload a CV first.")
         else:
             try:
-                client = get_client()
+                model_route = "gemini/gemini-2.5-flash" if st.session_state.get("selected_engine") == "Google Gemini 2.5 Flash" else "moonshot/kimi-k2.5"
                 prompt = "Evaluate the technical profile inside this CV. Map out exactly 2 to 3 strategic high-leverage skillsets or architectural paradigms that are essential to move into the next seniority bracket. For each skill, provide: 1. Core Competency Name, 2. Market Value/Justification, 3. A concrete, open-source portfolio project blueprint they can build independently to demonstrate true proficiency."
                 with st.spinner("Evaluating..."):
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[cv_file, prompt]
-                    )
-                    st.markdown(response.text)
+                    response = execute_universal_completion(model_route, prompt, cv_file_text)
+                    st.markdown(response.choices[0].message.content)
             except Exception as e:
-                st.error("API Error: Secure token configuration mismatch.")
+                provider_name = "Gemini" if "gemini" in model_route else "Moonshot"
+                st.error(f"API Error: Secure token configuration mismatch for {provider_name}.")
 
 # =====================================================================
 # TAB 4: INTERVIEW PREP KIT (UPDATED: GLOBAL MEMORY AUTO-FILL)
@@ -211,19 +209,17 @@ with tab4:
     interview_jd_input = st.text_area("Paste Interview Job Description", value=shared_jd, height=200)
     
     if st.button("Generate Interview Preparation Kit"):
-        if not cv_file:
+        if not cv_file_text:
             st.warning("Please upload a CV first.")
         elif not interview_jd_input.strip():
             st.warning("Please paste a target Job Description.")
         else:
             try:
-                client = get_client()
+                model_route = "gemini/gemini-2.5-flash" if st.session_state.get("selected_engine") == "Google Gemini 2.5 Flash" else "moonshot/kimi-k2.5"
                 prompt = f"Act as an elite interviewer. Based on the attached CV and this job target: {interview_jd_input}, build a tailored preparation guide. Include: 1. A 3-5 item core architectural revision index, 2. 5 deep technical mock questions probing engineering systems design, and 3. 3 specialized scenario questions utilizing the STAR structural template."
                 with st.spinner("Generating Prep Kit..."):
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[cv_file, prompt]
-                    )
-                    st.markdown(response.text)
+                    response = execute_universal_completion(model_route, prompt, cv_file_text)
+                    st.markdown(response.choices[0].message.content)
             except Exception as e:
-                st.error("API Error: Secure token configuration mismatch.")
+                provider_name = "Gemini" if "gemini" in model_route else "Moonshot"
+                st.error(f"API Error: Secure token configuration mismatch for {provider_name}.")
