@@ -76,13 +76,22 @@ def execute_universal_completion(model_route, user_prompt, cv_file_text=None):
     else:
         messages.append({"role": "user", "content": user_prompt})
 
+    import os
     try:
-        response = litellm.completion(model=model_route, messages=messages, api_key=api_key)
+        if "moonshot" in model_route.lower():
+            # Temporarily inject the env variable for LiteLLM requirement, remove it immediately after to maintain isolation
+            os.environ["MOONSHOT_API_KEY"] = api_key
+            response = litellm.completion(model=model_route, messages=messages, api_key=api_key, base_url="https://api.moonshot.cn/v1")
+        else:
+            response = litellm.completion(model=model_route, messages=messages, api_key=api_key)
         return response
     except Exception as e:
         provider_name = expected_key.split('_')[0].title()
         st.error(f"API Error: Verify token status for {provider_name}.")
         st.stop()
+    finally:
+        if "MOONSHOT_API_KEY" in os.environ:
+            os.environ.pop("MOONSHOT_API_KEY")
 
 # Initialize Tab Layout System wrappers
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 Job Finder", "🛠️ CV Customizer", "📈 Career Next Step", "🎯 Interview Prep Kit"])
