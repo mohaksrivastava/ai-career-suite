@@ -119,7 +119,7 @@ with tab1:
                 # REVISED PROMPT: Enforces dossier structures & multi-tier grading matrix rules
                 prompt = (
                     f"You are an aggressive recruitment sourcing agent executing an operational pipeline search. "
-                    f"Perform a simulated live search tracking open job vacancies matching the exact tech stack, seniority, and skills inside the attached CV. "
+                    f"Perform a simulated live search tracking open job vacancies matching the exact tech stack, seniority, and skills inside the attached CV."
                     f"Explicitly consider job portals like Naukri, Indeed, and Cutshort, alongside corporate board pathways powered by Greenhouse.io, Ashby.co, and Lever.co. "
                     f"Filter criteria by these manual modifiers: {modifiers}.\n\n"
                     f"CRITICAL LAYOUT COMPLIANCE:\n"
@@ -129,8 +129,8 @@ with tab1:
                     f"- Date of Posting (Leave blank if missing)\n"
                     f"- Key Skills Requested\n"
                     f"- A-F Scoring Evaluation Matrix: Evaluate and output a letter grade across 3 explicit pillars: "
-                    f"[1] Role-Skill Match, [2] Tech Stack Overlap, [3] Experience/Seniority Match. Add a 1-sentence analytical reason for each metric score.\n"
-                    f"Strictly maintain a non-hallucinated threshold. If fields or listings are vague, do not invent parameters."
+                    f"[1] Role-Skill Match, [2] Tech Stack Overlap, [3] Experience/Seniority Match, [4] Recency of job posting. Add a 1-sentence analytical reason for each metric score.\n"
+                    f"Strictly maintain a non-hallucinated threshold. If fields or listings are vague, do not invent parameters. Do not recommend jobs where the date of posting is more than 30 days old from the current date."
                 )
                 
                 with st.spinner("Scallop crawling across job directories and ATS boards..."):
