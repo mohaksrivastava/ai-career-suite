@@ -5,50 +5,38 @@ from io import BytesIO
 import fitz  # PyMuPDF
 import docx  # python-docx
 
-# Initialize page layout globally
+# Set page layout configuration
 st.set_page_config(layout="wide")
 
 # =====================================================================
-# PRIVACY GUARD: PDF REDACTION ENGINE (LAYOUT PRESERVED)
+# PRIVACY ENGINES: SCANS AND REPLACES TEXT IN-MEMORY
 # =====================================================================
 def redact_pdf(file_bytes, phone_str, email_str):
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     phone_count = 0
     email_count = 0
-
     for page in doc:
         if phone_str:
-            phone_instances = page.search_for(phone_str)
-            for inst in phone_instances:
+            for inst in page.search_for(phone_str):
                 page.add_redact_annot(inst, fill=(0, 0, 0))
                 phone_count += 1
-                
         if email_str:
-            email_instances = page.search_for(email_str)
-            for inst in email_instances:
+            for inst in page.search_for(email_str):
                 page.add_redact_annot(inst, fill=(0, 0, 0))
                 email_count += 1
-
         page.apply_redactions()
-
     scrubbed_bytes = doc.write()
     doc.close()
     return scrubbed_bytes, phone_count, email_count
 
-# =====================================================================
-# PRIVACY GUARD: WORD DOCX REDACTION ENGINE (TEXT REPLACEMENT)
-# =====================================================================
 def redact_docx(file_bytes, phone_str, email_str):
-    # Load the Word document from the in-memory binary stream
     doc = docx.Document(BytesIO(file_bytes))
     phone_count = 0
     email_count = 0
 
-    # Helper function to safely evaluate and swap text blocks inside paragraphs
     def clean_text_block(text, search_str, replacement):
         nonlocal phone_count, email_count
         if search_str and search_str in text:
-            # Count how many times it appears in this paragraph block
             occurrences = text.count(search_str)
             if replacement == "[PHONE REDACTED]":
                 phone_count += occurrences
@@ -57,31 +45,24 @@ def redact_docx(file_bytes, phone_str, email_str):
             return text.replace(search_str, replacement)
         return text
 
-    # Loop through all core body text paragraphs
     for p in doc.paragraphs:
-        if phone_str:
-            p.text = clean_text_block(p.text, phone_str, "[PHONE REDACTED]")
-        if email_str:
-            p.text = clean_text_block(p.text, email_str, "[EMAIL REDACTED]")
+        if phone_str: p.text = clean_text_block(p.text, phone_str, "[PHONE REDACTED]")
+        if email_str: p.text = clean_text_block(p.text, email_str, "[EMAIL REDACTED]")
 
-    # Loop through tables inside the Word file to scrub grid text data
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
-                    if phone_str:
-                        p.text = clean_text_block(p.text, phone_str, "[PHONE REDACTED]")
-                    if email_str:
-                        p.text = clean_text_block(p.text, email_str, "[EMAIL REDACTED]")
+                    if phone_str: p.text = clean_text_block(p.text, phone_str, "[PHONE REDACTED]")
+                    if email_str: p.text = clean_text_block(p.text, email_str, "[EMAIL REDACTED]")
 
-    # Save the modified document structure back into memory bytes
     output_stream = BytesIO()
     doc.save(output_stream)
     output_stream.seek(0)
     return output_stream.read(), phone_count, email_count
 
 # =====================================================================
-# STABILIZED AUTHENTICATION INFRASTRUCTURE
+# CORE AUTHENTICATION & HOOK EXTRACTION
 # =====================================================================
 def get_api_key():
     if "sidebar_api_key" in st.session_state and st.session_state.sidebar_api_key.strip():
@@ -89,24 +70,37 @@ def get_api_key():
     elif "GEMINI_API_KEY" in st.secrets:
         return st.secrets["GEMINI_API_KEY"]
     else:
-        st.info("Please enter your Gemini API Key in the sidebar to continue.")
+        st.info("🔒 Please enter your Gemini API Key in the sidebar to continue.")
         st.stop()
 
 api_key = get_api_key()
 client = genai.Client(api_key=api_key)
 
+# The core pipeline is cached based solely on the unique name and length of the uploaded file
 @st.cache_resource
-def upload_cv(_client_instance, file_buffer, mime_type):
+def process_and_upload_cv(file_name, file_size, _raw_bytes, phone_str, email_str, mime_type):
     try:
-        return _client_instance.files.upload(
-            file=file_buffer, 
+        working_bytes = _raw_bytes
+        p_count, e_count = 0, 0
+        
+        # Run redactions inside the cache barrier to prevent multi-trigger drops
+        if file_name.endswith(".pdf") and (phone_str or email_str):
+            working_bytes, p_count, e_count = redact_pdf(working_bytes, phone_str, email_str)
+        elif file_name.endswith(".docx") and (phone_str or email_str):
+            working_bytes, p_count, e_count = redact_docx(working_bytes, phone_str, email_str)
+            
+        # Execute cloud upload via the global isolated client wrapper
+        uploaded_handle = client.files.upload(
+            file=BytesIO(working_bytes),
             config=types.UploadFileConfig(mime_type=mime_type, display_name="user_cv")
         )
+        return uploaded_handle, p_count, e_count
     except Exception as e:
-        st.error("API Error: Secure token configuration mismatch.")
+        # Trace errors transparently during system verification phases
+        st.error(f"Internal Handshake Failure: {str(e)}")
         st.stop()
 
-# Sidebar configuration layout
+# Build UI sidebar parameters
 with st.sidebar:
     st.header("🔑 Authentication")
     st.text_input("Enter Gemini API Key", type="password", key="sidebar_api_key")
@@ -115,37 +109,32 @@ with st.sidebar:
     st.text_input("Phone Number to Redact (Optional)", key="user_phone")
     st.text_input("Email to Redact (Optional)", key="user_email")
 
-# =====================================================================
-# MULTI-FORMAT PARSING & ROUTING HOOK
-# =====================================================================
+# Bind variables to cached execution states
 if st.session_state.get("uploaded_cv"):
     file = st.session_state.uploaded_cv
-    file_bytes = file.read()
+    raw_file_bytes = file.getvalue() # Extract base immutable array
     
     phone_input = st.session_state.get("user_phone", "").strip()
     email_input = st.session_state.get("user_email", "").strip()
 
-    # Route files dynamically into their respective scrubbing libraries
     if file.name.endswith(".pdf"):
         mime = "application/pdf"
-        if phone_input or email_input:
-            file_bytes, phone_redacted, email_redacted = redact_pdf(file_bytes, phone_input, email_input)
-            st.sidebar.success(f"🔒 Scrubbed {phone_redacted} phone & {email_redacted} email nodes from PDF.")
-            
     elif file.name.endswith(".docx"):
         mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        if phone_input or email_input:
-            file_bytes, phone_redacted, email_redacted = redact_docx(file_bytes, phone_input, email_input)
-            st.sidebar.success(f"🔒 Replaced {phone_redacted} phone & {email_redacted} email keywords inside DOCX.")
     else:
         mime = "application/octet-stream"
 
-    # Send the safe, anonymized bytes (whether PDF or Word) directly to Gemini File Server
-    cv_file = upload_cv(client, BytesIO(file_bytes), mime)
+    # Invoke the secure pipeline wrapper passing strict structural inputs
+    cv_file, phone_scrubbed, email_scrubbed = process_and_upload_cv(
+        file.name, file.size, raw_file_bytes, phone_input, email_input, mime
+    )
+    
+    if phone_input or email_input:
+        st.sidebar.success(f"🔒 Guard Active: Removed {phone_scrubbed} phone & {email_scrubbed} email items.")
 else:
     cv_file = None
 
-# Tabs declarations
+# Interface workspace tab declarations
 tab1, tab2, tab3, tab4 = st.tabs(["Job Finder", "CV Customizer", "Career Next Step", "Interview Prep Kit"])
 
 # =====================================================================
@@ -153,10 +142,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["Job Finder", "CV Customizer", "Career Next St
 # =====================================================================
 with tab1:
     st.subheader("🌐 Multi-Portal Search & Strategic Filtering Engine")
-    st.markdown(
-        "Scans aggregators (**Naukri, Indeed, Cutshort, Shine**) alongside core ATS directory targets "
-        "(**Greenhouse, Ashby, Lever**) using live Google Search Grounding."
-    )
+    st.markdown("Scans aggregators (**Naukri, Indeed, Cutshort, Shine**) and ATS portals via Google Search Grounding.")
     st.text_input("Additional Search Modifiers (e.g. Remote India)", key="search_modifiers")
     
     if st.button("Launch Web Search Agent"):
@@ -171,7 +157,7 @@ with tab1:
                 prompt = (
                     f"Perform a live Google Search to identify exactly 10 open job vacancies matching the skills and experience level in the attached CV. "
                     f"Crawl prominent job portals like Naukri, Indeed, and Cutshort, alongside developer board structures like Greenhouse.io, Ashby.co, and Lever.co. "
-                    f"Filter by modifiers: {modifiers}. Limit your search to jobs posted in the last 3 months from today\n\n"
+                    f"Filter by modifiers: {modifiers}.\n\n"
                     f"CRITICAL FORMAT RULES:\n"
                     f"Do NOT output a table layout. Output each identified job sequentially using clean Markdown headings ('### Job Title - Company Name'). "
                     f"Under each heading, list exactly these points:\n"
@@ -201,12 +187,11 @@ with tab1:
                                     st.markdown(f"**[{idx + 1}]** [{title}]({chunk.web.uri})")
                     except AttributeError:
                         pass
-                        
             except Exception as e:
                 st.error("API Error: Verify token status for Gemini.")
 
 # =====================================================================
-# TAB 2: CV CUSTOMIZER 
+# TAB 2: CV CUSTOMIZER
 # =====================================================================
 with tab2:
     st.text_area("Paste Target Job Description (JD)", height=200, key="customizer_jd")
@@ -230,7 +215,7 @@ with tab2:
                     st.error("API Error: Verify token status for Gemini.")
 
 # =====================================================================
-# TAB 3: CAREER NEXT STEP 
+# TAB 3: CAREER NEXT STEP
 # =====================================================================
 with tab3:
     if st.button("Evaluate Skill Gaps & Growth Triggers"):
