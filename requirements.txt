@@ -1,4 +1,2 @@
 streamlit
-pypdf
-litellm
-pydantic
+google-genai
