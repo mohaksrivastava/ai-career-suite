@@ -171,7 +171,7 @@ with tab1:
                 prompt = (
                     f"Perform a live Google Search to identify exactly 10 open job vacancies matching the skills and experience level in the attached CV. "
                     f"Crawl prominent job portals like Naukri, Indeed, and Cutshort, alongside developer board structures like Greenhouse.io, Ashby.co, and Lever.co. "
-                    f"Filter by modifiers: {modifiers}.\n\n"
+                    f"Filter by modifiers: {modifiers}. Limit your search to jobs posted in the last 3 months from today\n\n"
                     f"CRITICAL FORMAT RULES:\n"
                     f"Do NOT output a table layout. Output each identified job sequentially using clean Markdown headings ('### Job Title - Company Name'). "
                     f"Under each heading, list exactly these points:\n"
