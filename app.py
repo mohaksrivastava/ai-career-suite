@@ -2,14 +2,45 @@ import streamlit as st
 import google.genai as genai
 from google.genai import types
 from io import BytesIO
+import fitz  # PyMuPDF
 
 # Initialize page layout globally
 st.set_page_config(layout="wide")
 
 # =====================================================================
-# PHASE 1: FIXED AUTHENTICATION & SINGLETON CLIENT INFRASTRUCTURE
+# PRIVACY GUARD: IN-MEMORY REDACTION ENGINE (FIXED LOOP)
 # =====================================================================
+def redact_pdf(file_bytes, phone_str, email_str):
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    phone_count = 0
+    email_count = 0
 
+    for page in doc:
+        # Redact specific phone number instances
+        if phone_str:
+            phone_instances = page.search_for(phone_str)
+            for inst in phone_instances:
+                page.add_redact_annot(inst, fill=(0, 0, 0))
+                phone_count += 1
+                
+        # Redact specific email address instances
+        if email_str:
+            email_instances = page.search_for(email_str)
+            for inst in email_instances:
+                page.add_redact_annot(inst, fill=(0, 0, 0))
+                email_count += 1
+
+        # Apply redactions page-by-page to guarantee data removal
+        page.apply_redactions()
+
+    # Output the modified file back as clean bytes
+    scrubbed_bytes = doc.write()
+    doc.close()
+    return scrubbed_bytes, phone_count, email_count
+
+# =====================================================================
+# PHASE 1: STABILIZED AUTHENTICATION INFRASTRUCTURE
+# =====================================================================
 def get_api_key():
     if "sidebar_api_key" in st.session_state and st.session_state.sidebar_api_key.strip():
         return st.session_state.sidebar_api_key.strip()
@@ -19,12 +50,10 @@ def get_api_key():
         st.info("Please enter your Gemini API Key in the sidebar to continue.")
         st.stop()
 
-# Rule 1: Instantiate ONE global client for the entire execution thread
+# Instantiate ONE global client for the entire execution thread
 api_key = get_api_key()
 client = genai.Client(api_key=api_key)
 
-# Rule 2: Accept the global client instance as an explicit parameter.
-# The underscore prefix (_client_instance) tells Streamlit NOT to hash this complex object.
 @st.cache_resource
 def upload_cv(_client_instance, file_buffer, mime_type):
     try:
@@ -36,31 +65,44 @@ def upload_cv(_client_instance, file_buffer, mime_type):
         st.error("API Error: Secure token configuration mismatch.")
         st.stop()
 
+# Build the sidebar with the privacy inputs included
 with st.sidebar:
     st.header("🔑 Authentication")
     st.text_input("Enter Gemini API Key", type="password", key="sidebar_api_key")
     st.file_uploader("Upload your CV", type=["pdf", "docx"], key="uploaded_cv")
+    st.header("🛡️ Privacy Shield")
+    st.text_input("Phone Number to Redact (Optional)", key="user_phone")
+    st.text_input("Email to Redact (Optional)", key="user_email")
 
+# Process uploaded files through the redaction layer before reaching Google's servers
 if st.session_state.get("uploaded_cv"):
     file = st.session_state.uploaded_cv
     file_bytes = file.read()
+    
+    phone_input = st.session_state.get("user_phone", "").strip()
+    email_input = st.session_state.get("user_email", "").strip()
+
     if file.name.endswith(".pdf"):
         mime = "application/pdf"
+        # Trigger redactions if the user provided specific targets
+        if phone_input or email_input:
+            file_bytes, phone_redacted, email_redacted = redact_pdf(file_bytes, phone_input, email_input)
+            st.sidebar.success(f"🔒 Cleaned {phone_redacted} phone and {email_redacted} email entries.")
     elif file.name.endswith(".docx"):
         mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     else:
         mime = "application/octet-stream"
 
-    # Pass the unified global client straight into the upload module
+    # Pass the scrubbed bytes into the single cloud-client handle
     cv_file = upload_cv(client, BytesIO(file_bytes), mime)
 else:
     cv_file = None
 
-# Create the user interface layout tabs
+# Create user workspace tabs
 tab1, tab2, tab3, tab4 = st.tabs(["Job Finder", "CV Customizer", "Career Next Step", "Interview Prep Kit"])
 
 # =====================================================================
-# PHASE 2: REVISED TAB 1 - STRUCTURED DOSSIER + LINKS METADATA
+# TAB 1: STRUCTURED DOSSIER + LINKS METADATA
 # =====================================================================
 with tab1:
     st.subheader("🌐 Multi-Portal Search & Strategic Filtering Engine")
@@ -68,7 +110,6 @@ with tab1:
         "Scans aggregators (**Naukri, Indeed, Cutshort, Shine**) alongside core ATS directory targets "
         "(**Greenhouse, Ashby, Lever**) using live Google Search Grounding."
     )
-    
     st.text_input("Additional Search Modifiers (e.g. Remote India)", key="search_modifiers")
     
     if st.button("Launch Web Search Agent"):
@@ -76,15 +117,10 @@ with tab1:
             st.warning("Please upload a CV first.")
         else:
             try:
-                # Removed "client = get_client()" to prevent re-instantiation dropouts
                 search_tool = types.Tool(google_search=types.GoogleSearch())
-                config = types.GenerateContentConfig(
-                    tools=[search_tool],
-                    temperature=1.0
-                )
+                config = types.GenerateContentConfig(tools=[search_tool], temperature=1.0)
                 modifiers = st.session_state.get("search_modifiers", "")
                 
-                # Updated prompt to format results as clean vertical markdown dossiers instead of tables
                 prompt = (
                     f"Perform a live Google Search to identify exactly 10 open job vacancies matching the skills and experience level in the attached CV. "
                     f"Crawl prominent job portals like Naukri, Indeed, and Cutshort, alongside developer board structures like Greenhouse.io, Ashby.co, and Lever.co. "
@@ -105,11 +141,8 @@ with tab1:
                         contents=[cv_file, prompt],
                         config=config
                     )
-                    
-                    # 1. Output the clean text report
                     st.markdown(response.text)
                     
-                    # 2. Extract and append un-hallucinated URL references programmatically from the metadata
                     try:
                         chunks = response.candidates[0].grounding_metadata.grounding_chunks
                         if chunks:
@@ -120,13 +153,13 @@ with tab1:
                                     title = chunk.web.title if chunk.web.title else f"Job Source Portal {idx+1}"
                                     st.markdown(f"**[{idx + 1}]** [{title}]({chunk.web.uri})")
                     except AttributeError:
-                        pass # Squelch gracefully if grounding chunks don't exist
+                        pass
                         
             except Exception as e:
                 st.error("API Error: Verify token status for Gemini.")
 
 # =====================================================================
-# TAB 2: CV CUSTOMIZER (STABILIZED)
+# TAB 2: CV CUSTOMIZER 
 # =====================================================================
 with tab2:
     st.text_area("Paste Target Job Description (JD)", height=200, key="customizer_jd")
@@ -150,7 +183,7 @@ with tab2:
                     st.error("API Error: Verify token status for Gemini.")
 
 # =====================================================================
-# TAB 3: CAREER NEXT STEP (STABILIZED)
+# TAB 3: CAREER NEXT STEP 
 # =====================================================================
 with tab3:
     if st.button("Evaluate Skill Gaps & Growth Triggers"):
@@ -169,7 +202,7 @@ with tab3:
                 st.error("API Error: Verify token status for Gemini.")
 
 # =====================================================================
-# TAB 4: INTERVIEW PREP KIT (STABILIZED)
+# TAB 4: INTERVIEW PREP KIT
 # =====================================================================
 with tab4:
     st.text_area("Paste Interview Job Description", height=200, key="interview_jd")
