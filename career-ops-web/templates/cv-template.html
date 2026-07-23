@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{JOB_TITLE}} — {{COMPANY}}</title>
+<style>
+  @page { margin: 0; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11pt;
+    line-height: 1.45;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+  }
+  .page { padding: 0; }
+  h1 { font-size: 20pt; margin: 0 0 4pt; }
+  h2 {
+    font-size: 12pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    border-bottom: 1pt solid #333;
+    margin: 16pt 0 6pt;
+    padding-bottom: 2pt;
+  }
+  h3 { font-size: 11pt; margin: 10pt 0 2pt; }
+  p { margin: 0 0 6pt; }
+  li { margin: 0 0 3pt; }
+  strong { font-weight: 600; }
+  .meta {
+    font-size: 9pt;
+    color: #555;
+    margin-bottom: 12pt;
+  }
+  /* ATS hygiene: disable ligatures that can corrupt extracted keywords */
+  * { font-variant-ligatures: none; -webkit-font-variant-ligatures: none; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <p class="meta">Tailored for {{JOB_TITLE}} at {{COMPANY}}</p>
+    {{CV_CONTENT}}
+  </div>
+</body>
+</html>
