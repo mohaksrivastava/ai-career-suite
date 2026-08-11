@@ -40,10 +40,16 @@ ${jobDescription}`;
     .replace(/{{JOB_TITLE}}/g, escapeHtml(jobTitle))
     .replace(/{{COMPANY}}/g, escapeHtml(company));
 
-  // Render PDF
+  // Render PDF.
+  // @sparticuz/chromium-min ships no binary of its own — it must be pointed
+  // at a downloadable chromium pack matching its own version (see package.json).
+  // CHROMIUM_PACK_URL lets this be overridden (e.g. to a local file:// path
+  // cached on the VM to avoid re-downloading on every cold start).
+  const packUrl = process.env.CHROMIUM_PACK_URL
+    || 'https://github.com/Sparticuz/chromium/releases/download/v123.0.1/chromium-v123.0.1-pack.tar';
   const browser = await puppeteer.launch({
     args: chromium.args,
-    executablePath: await chromium.executablePath(),
+    executablePath: await chromium.executablePath(packUrl),
     headless: true,
   });
 

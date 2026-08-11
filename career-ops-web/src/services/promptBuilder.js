@@ -6,10 +6,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.join(__dirname, '../../prompts');
 
 // Load prompt files once at startup (they don't change at runtime)
-const SHARED   = fs.readFileSync(path.join(PROMPTS_DIR, '_shared.md'), 'utf8');
-const OFERTA   = fs.readFileSync(path.join(PROMPTS_DIR, 'oferta.md'),  'utf8');
-const COVER    = fs.readFileSync(path.join(PROMPTS_DIR, 'cover.md'),   'utf8');
-const EMAIL_MD = fs.readFileSync(path.join(PROMPTS_DIR, 'email.md'),   'utf8');
+const SHARED    = fs.readFileSync(path.join(PROMPTS_DIR, '_shared.md'),  'utf8');
+const OFERTA    = fs.readFileSync(path.join(PROMPTS_DIR, 'oferta.md'),   'utf8');
+const COVER     = fs.readFileSync(path.join(PROMPTS_DIR, 'cover.md'),    'utf8');
+const EMAIL_MD  = fs.readFileSync(path.join(PROMPTS_DIR, 'email.md'),    'utf8');
+const INTERVIEW = fs.readFileSync(path.join(PROMPTS_DIR, 'interview.md'), 'utf8');
 
 /**
  * Build the system prompt for a single-job evaluation (career-ops oferta mode).
@@ -41,4 +42,11 @@ export function buildCoverSystemPrompt(cvMarkdown) {
  */
 export function buildEmailSystemPrompt(cvMarkdown) {
   return SHARED + `\n\n## CANDIDATE CV\n\n${cvMarkdown}\n\n` + EMAIL_MD;
+}
+
+/**
+ * Interview prep system prompt (career-ops interview-prep mode, adapted)
+ */
+export function buildInterviewSystemPrompt() {
+  return INTERVIEW;
 }

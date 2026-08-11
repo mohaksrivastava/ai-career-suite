@@ -80,3 +80,17 @@ export async function scanLeverBoard(companySlug) {
     postedAt: new Date(j.createdAt).toISOString(),
   }));
 }
+
+/**
+ * Fetch the current Apify monthly usage in USD (RULE S-11: token stays
+ * server-side — this is called only from the retention cron, never exposed
+ * to the client). Returns 'unknown' if the API call fails.
+ */
+export async function getApifyMonthlyUsageUsd() {
+  const res = await fetch('https://api.apify.com/v2/users/me', {
+    headers: { Authorization: `Bearer ${process.env.APIFY_TOKEN}` },
+  });
+  if (!res.ok) return 'unknown';
+  const data = await res.json();
+  return data?.data?.plan?.monthlyUsageCreditsUsd ?? 'unknown';
+}

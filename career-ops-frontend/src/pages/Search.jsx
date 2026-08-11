@@ -12,9 +12,16 @@ export default function Search() {
   const { jobs, setJobs, setSelectedJob } = useApp();
   const navigate = useNavigate();
 
+  const needsSlug = source.startsWith('greenhouse') || source.startsWith('lever');
+  const slugMissing = needsSlug && source.split(':')[1]?.trim() === '';
+
   async function handleSearch(e) {
     e.preventDefault();
     setError('');
+    if (slugMissing) {
+      setError('Enter a company slug for this board.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await searchApi.jobs({ query, location, source });
@@ -58,7 +65,7 @@ export default function Search() {
             onChange={e => setSource(prev => prev.split(':')[0] + ':' + e.target.value)}
           />
         )}
-        <button type="submit" disabled={loading || !query}>
+        <button type="submit" disabled={loading || !query || slugMissing}>
           {loading ? 'Searching…' : 'Search'}
         </button>
       </form>

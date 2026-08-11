@@ -1,0 +1,11 @@
+# Log rotation for career-ops (Phase 8.4).
+# Copy to /etc/logrotate.d/career-ops on the VM:
+#   sudo cp career-ops-logrotate /etc/logrotate.d/career-ops
+
+/var/career-ops-data/logs/*.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+}

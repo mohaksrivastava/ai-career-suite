@@ -1,0 +1,22 @@
+# systemd unit for the career-ops-api Node.js process (Phase 1.11).
+# Copy to /etc/systemd/system/career-ops-api.service on the VM, replace
+# YOUR_UNIX_USER, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable career-ops-api
+#   sudo systemctl start career-ops-api
+
+[Unit]
+Description=career-ops API
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_UNIX_USER
+WorkingDirectory=/home/YOUR_UNIX_USER/career-ops-web
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

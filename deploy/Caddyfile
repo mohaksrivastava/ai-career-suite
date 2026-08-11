@@ -1,0 +1,23 @@
+# Reverse proxy + TLS termination for career-ops-api (Phase 1.10, hardened per Phase 8.3).
+# Copy to /etc/caddy/Caddyfile on the VM, replace the domain, then:
+#   sudo systemctl enable caddy && sudo systemctl restart caddy
+# Caddy automatically obtains and renews a Let's Encrypt TLS certificate.
+
+your-domain.example.com {
+    # Only allow the methods the API actually uses; everything else gets 405.
+    @blocked {
+        not method GET POST DELETE OPTIONS
+    }
+    respond @blocked 405
+
+    reverse_proxy 127.0.0.1:3000
+
+    encode gzip
+
+    log {
+        output file /var/career-ops-data/logs/caddy.log {
+            roll_size 10mb
+            roll_keep 3
+        }
+    }
+}
